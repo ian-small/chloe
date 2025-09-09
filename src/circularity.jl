@@ -132,15 +132,20 @@ end
 struct CircularSequence
     length::Int32
     sequence::LongDNA{2}
+    original_sequence::LongDNA{4}  # Store original sequence with N characters preserved
     mask::CircularMask  #used to mask low entropy regions, ambiguous bases, gaps
 
     function CircularSequence(seq::LongDNA{2}, mask::CircularMask)
-        new(length(seq), append!(seq, LongSubSeq(seq, 1:length(seq)-1)), mask)
+        # For this constructor, we don't have the original sequence, so create a dummy one
+        original_seq = LongDNA{4}(seq)
+        new(length(seq), append!(seq, LongSubSeq(seq, 1:length(seq)-1)), original_seq, mask)
     end
 
     function CircularSequence(seq::LongDNA{4})
         mask = CircularMask(falses(length(seq)))
         entropy_mask!(seq, mask)
+        # Store original sequence before modification
+        original_seq = copy(seq)
         for (n::Int32, nt) in enumerate(seq)
             if isambiguous(nt) || isgap(nt)
                 setindex!(mask, true, n)
@@ -148,12 +153,17 @@ struct CircularSequence
             end
         end
         compressedseq = LongDNA{2}(seq)
-        new(length(compressedseq), append!(compressedseq, LongSubSeq(compressedseq, 1:length(compressedseq)-1)), mask)
+        new(length(compressedseq), append!(compressedseq, LongSubSeq(compressedseq, 1:length(compressedseq)-1)), original_seq, mask)
     end
 end
 
 @inline Base.length(cs::CircularSequence) = cs.length
 @inline Base.getindex(cs::CircularSequence, i::Int32) = @inbounds getindex(cs.sequence, mod1(i, cs.length))
+
+# Function to get the original sequence with N characters preserved
+function get_original_sequence(cs::CircularSequence)
+    return cs.original_sequence[1:cs.length]
+end
 
 function Base.getindex(cs::CircularSequence, r::UnitRange{<:Integer})
     @assert length(r) <= length(cs)
