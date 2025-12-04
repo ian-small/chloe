@@ -203,8 +203,9 @@ function write_result(config::ChloeConfig, target::FwdRev{CircularSequence}, res
         end
         if config.gbk
             out = filestem * ".chloe.gbk"
-            biojulia.header = "LOCUS       $(rpad(result.target_id, 10, ' ')) $(lpad(length(biojulia.sequence), 10, ' ')) bp    DNA     circular PLN $(uppercase(Dates.format(now(), "dd-uuu-yyyy")))"
             biojulia.sequence = target.forward[1:length(target.forward)]
+            spaces = 29 - length(result.target_id) - length(length(biojulia.sequence))
+            biojulia.header = "LOCUS       $(result.target_id)$(lpad(length(biojulia.sequence), spaces, " ")) bp     DNA    circular PLN $(uppercase(Dates.format(now(), "dd-uuu-yyyy")))"
             GenBank.printgbk(out, biojulia)
         end
         if config.embl
