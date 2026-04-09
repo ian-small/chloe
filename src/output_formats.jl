@@ -184,10 +184,12 @@ function chloe2biojulia(chloe::ChloeAnnotation)::GenomicAnnotations.Record
     biojulia
 end
 
-function write_result(config::ChloeConfig, target::FwdRev{CircularSequence}, result::ChloeAnnotation, filestem::String)::Tuple{Union{String,IO},String}
+function write_result(config::ChloeConfig, target::FwdRev{CircularSequence}, result::ChloeAnnotation, filestem::String,
+    description::Union{Nothing,String}=nothing)::Tuple{Union{String,IO},String}
     if ~config.no_transform
         FASTAWriter(open(filestem * ".chloe.fa", "w")) do outfile
-            write(outfile, FASTARecord(result.target_id, target.forward[1:length(target.forward)]))
+            id = isnothing(description) ? result.target_id : description 
+            write(outfile, FASTARecord(id, target.forward[1:length(target.forward)]))
         end
     end
     if config.sff

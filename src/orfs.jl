@@ -106,6 +106,9 @@ function getallorfs(seq::CircularSequence, strand::Char, minorflength::Int32)
     strandprefix = strand == '+' ? "f" : "r"
     for f in 1:3
         frame = stops.frames[f]
+        if length(frame) == 0
+            continue
+        end
         pstop = frame[Int32(1)]
         for stop in frame[2:length(frame)]
             distance_from_pstop = circulardistance(pstop, stop, length(seq))
@@ -118,6 +121,9 @@ function getallorfs(seq::CircularSequence, strand::Char, minorflength::Int32)
     end
     # add orfs that cross end of genome
     for f1 in stops.frames, f2 in stops.frames
+        if length(f1) == 0 || length(f2) == 0
+            continue
+        end
         dist = circulardistance(last(f1.v), first(f2.v), length(seq))
         if dist % 3 == 0 #in frame
             if dist ≥ minorflength

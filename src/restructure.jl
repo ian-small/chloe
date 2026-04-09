@@ -117,7 +117,7 @@ function transform!(
     target::FwdRev{CircularSequence},
     result::ChloeAnnotation,
     templates::Dict{String,FeatureTemplate}
-)::Tuple{FwdRev{CircularSequence},ChloeAnnotation}
+)::Tuple{FwdRev{CircularSequence},ChloeAnnotation, String}
     gl = result.target_length
     refstrands = Dict{String,Char}()
     for t in values(templates)
@@ -125,6 +125,7 @@ function transform!(
     end
     IRa_range = IR_range(result.annotation.forward)
     IRb_range = IR_range(result.annotation.reverse)
+    ts = ""
     if isnothing(IRa_range)
         # no IRs so check orientation of whole genome
         if ~check_orientation(result.annotation.forward, refstrands)
@@ -138,18 +139,25 @@ function transform!(
             end
             target = FwdRev(target.reverse, target.forward)
             result = ChloeAnnotation(result.target_id, result.target_length, result.coverages, new_annotations)
+            ts *= "-"
         end
         ## rotate IR-less cp genomes to end with ndhF
         ndhFidx = findfirst(x -> x.gene == "ndhF", result.annotation.forward)
+        rotated = 0
         if ~isnothing(ndhFidx)
             ndhF = result.annotation.forward[ndhFidx].features[1].feature
             target, result = rotate!(target, result, ndhF.start + ndhF.length)
+            rotated += ndhF.start + ndhF.length - 1
         end
         ## rotate nuclear rDNA repeats to start with 18S rRNA gene
         rrn18idx = findfirst(x -> x.gene == "18SRRNA", result.annotation.forward)
         if ~isnothing(rrn18idx)
             fstart = result.annotation.forward[rrn18idx].features[1].feature.start
             target, result = rotate!(target, result, fstart)
+            rotated += fstart - 1
+        end
+        if rotated != 0
+            ts *= "r[$(rotated)]"
         end
     else
         # In the target genome, pick the IR that has the most genes on the same strand as in the templates and make this IR1
@@ -157,10 +165,18 @@ function transform!(
             filter(x -> length(circularintersect(gene_span(x), IRa_range, gl)) > 0, result.annotation.forward)
         if check_orientation(IRa_annotations, refstrands)
             # IRa is in correct orientation, so rotate to start from the nucleotide following IRb; no flip required
-            target, result = rotate!(target, result, gl - IRb_range.start + 2)
+            nstart = gl - IRb_range.start + 2
+            target, result = rotate!(target, result, nstart)
+            if nstart != 1
+                ts *= "r[$(nstart - 1)]"
+            end
         else
             # IRb is in correct orientation, so rotate to end of IRa, then flip the IR annotations
-            target, result = rotate!(target, result, IRa_range.stop + 1)
+            nstart = IRa_range.stop + 1
+            target, result = rotate!(target, result, nstart)
+            if nstart !=  1
+                ts *= "r[$(nstart - 1)]"
+            end
             #flip IR annotations
             IRa_feature =
                 first(
@@ -179,6 +195,7 @@ function transform!(
             tmp = IRa_feature.start
             IRa_feature.start = rc(IRb_feature.start + IRb_feature.length - 1, gl)
             IRb_feature.start = rc(tmp + IRa_feature.length - 1, gl)
+            ts *= "x"
         end
         # reload ranges as they may have altered
         IRa_range = IR_range(result.annotation.forward)
@@ -188,16 +205,24 @@ function transform!(
         LSC_annotations =
             filter(x -> length(circularintersect(gene_span(x), LSC_range, gl)) > 0, result.annotation.forward)
         if ~check_orientation(LSC_annotations, refstrands)
-            target, result = flip!(target, result, LSC_range)
+            if length(LSC_range) >= 1
+                isfull = result.target_length == length(LSC_range)
+                ts *= isfull ? "-" : "f[$(LSC_range)]"
+                target, result = flip!(target, result, LSC_range)
+            end
         end
         # orient SSC to maximise strand agreement with the templates
         SSC_range = IRa_range.stop+1:rc(IRb_range.stop + 1, gl)
         SSC_annotations =
             filter(x -> length(circularintersect(gene_span(x), SSC_range, gl)) > 0, result.annotation.forward)
         if ~check_orientation(SSC_annotations, refstrands)
-            target, result = flip!(target, result, SSC_range)
+            if length(SSC_range) >= 1
+                isfull = result.target_length == length(SSC_range)
+                ts *= isfull ? "-" : "f[$(SSC_range)]"
+                target, result = flip!(target, result, SSC_range)
+            end
         end
         #rename IRs?
     end
-    target, result
+    target, result, ts
 end

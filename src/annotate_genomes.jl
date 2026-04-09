@@ -289,6 +289,9 @@ function do_strand(
     target_strand_models::Vector{Vector{SFF_Feature}} = features2models(sort(sff_features; by=x -> x.feature))
 
     orfs = getallorfs(target_seq, strand, Int32(0))
+    if length(orfs) == 0
+        @warn "[$(target_id)]$(strand) no ORFs found!"
+    end
     # this toys with the feature start, phase etc....
     # refine_gene_models! does not (yet) use the relative_length, stackdepth, feature_prob, coding_prob values but could...
     refine_gene_models!(target_strand_models, target_seq, orfs)
@@ -526,7 +529,13 @@ function annotate_one_worker(
     final_annotation_edit!(ret)
 end
 
-function fasta_reader(infile::IO)::Tuple{String,FwdRev{CircularSequence}}
+struct CircularSeqRecord
+    target_id::String
+    description::String
+    seq::FwdRev{CircularSequence}
+end
+
+function fasta_reader(infile::IO)::CircularSeqRecord
     reader = FASTA.Reader(infile)
     records = [record for record in reader]
     if isempty(records)
@@ -547,22 +556,38 @@ function fasta_reader(infile::IO)::Tuple{String,FwdRev{CircularSequence}}
     if isnothing(target_id)
         target_id = "unknown"
     end
-    return target_id, FwdRev(fseq, rseq)
+    description = FASTA.description(records[1])
+    if isnothing(description)
+        description = target_id
+    end
+    return CircularSeqRecord(String(target_id), String(description), FwdRev(fseq, rseq))
 end
 
 function annotate_one(
     db::AbstractReferenceDb,
-    target_id::String,
-    target::FwdRev{CircularSequence},
+    seqrecord::CircularSeqRecord,
     output::String,
     config::Union{ChloeConfig,Nothing}=nothing,
 )::Tuple{Union{String,IO},String}
     config = isnothing(config) ? ChloeConfig() : config
-    result = annotate_one_worker(db, target_id, target, config)
-    if ~config.no_transform
-        target, result = transform!(target, result, db.templates)
+    result = annotate_one_worker(db, seqrecord.target_id, seqrecord.seq, config)
+    if length(result.annotation.forward) + length(result.annotation.reverse) == 0
+        @warn "[$(result.target_id)] no features found ... skipping output"
+        return "", result.target_id
     end
-    write_result(config, target, result, output)
+    if ~config.no_transform
+        target, result, ts = transform!(seqrecord.seq, result, db.templates)
+        description = seqrecord.description
+        if ts != ""
+            @info crayon"bold magenta"("[$(result.target_id)] transformed: $(ts)")
+            description *= ", Transformed: $ts"
+
+        end
+    else
+        target = seqrecord.seq
+        description = seqrecord.description
+    end
+    write_result(config, target, result, output, description)
 end
 
 function annotate(
@@ -587,9 +612,9 @@ function annotate(
     output::String=".",
     stem::MayBeString=nothing
 )
-    target_id, seqs = fasta_reader(infile)
-    output = isnothing(stem) ? joinpath(output, target_id) : joinpath(output, stem)
-    annotate_one(db, target_id, seqs, output, config)
+    seqrecord = fasta_reader(infile)
+    output = isnothing(stem) ? joinpath(output, seqrecord.target_id) : joinpath(output, stem)
+    annotate_one(db, seqrecord, output, config)
 end
 
 function filestem(fname)
